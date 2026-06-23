@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 /**
  * Ensures that no clone entry references a line number beyond the end of its
  * source file. Simian can occasionally report an end_line that exceeds the
@@ -5,8 +8,6 @@
  *
  * Also tags each clone group with its zero-based `index` in the code_clones
  * array, which downstream consumers use for cross-referencing.
- *
- * NOTE: This module uses `fs` and `path` from Node.js but does not import them.
  *
  * @param {object} duplicationInfo   - Normalized report with a code_clones[] array.
  * @param {string} analysisDirectory - Base directory used to resolve relative file paths.
