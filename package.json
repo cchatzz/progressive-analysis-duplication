@@ -11,6 +11,7 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "dotenv": "^17.4.2",
     "globby": "^14.1.0",
     "shelljs": "^0.8.5",
     "xml2js": "^0.6.2"
