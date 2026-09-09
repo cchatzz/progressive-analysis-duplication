@@ -19,8 +19,9 @@ const ensureNonExceedingEndLines = (duplicationInfo, analysisDirectory) => {
 		duplicationInfo.code_clones[index].index = index;
 
 		for (const [findex, f] of instance.files.entries()) {
-			// Read the actual source file to determine its true line count.
-			const file = fs.readFileSync(path.join(analysisDirectory, f.filePath), { encoding: "utf8", flag: "r" });
+			// Simian reports absolute paths; only join relative ones onto the base dir.
+			const resolvedPath = path.isAbsolute(f.filePath) ? f.filePath : path.join(analysisDirectory, f.filePath);
+			const file = fs.readFileSync(resolvedPath, { encoding: "utf8", flag: "r" });
 			const numLines = file.split("\n").length;
 
 			// Clamp end_line: use the smaller of the reported value and the real
