@@ -33,8 +33,9 @@ const simianAnalysis = async (analysisDirectory) => {
 	// Simian will write its XML report to this file in the analysis directory.
 	const simianLogFilePath = `${analysisDirectory}/simian-log.xml`;
 
-	// Glob pattern passed to Simian to pick up every Java file recursively.
-	const filesPattern = `-includes=${analysisDirectory}/**/*.java`;
+	// Two patterns so Simian matches Java files both at the root and in nested
+	// dirs; `**/*.java` alone skips files directly in the base directory.
+	const filesPattern = `-includes=${analysisDirectory}/*.java -includes=${analysisDirectory}/**/*.java`;
 
 	// Build the full Simian CLI command:
 	//   -threshold=15         minimum block length (lines) to consider a clone

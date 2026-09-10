@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 /**
  * Ensures that no clone entry references a line number beyond the end of its
  * source file. Simian can occasionally report an end_line that exceeds the
@@ -5,8 +8,6 @@
  *
  * Also tags each clone group with its zero-based `index` in the code_clones
  * array, which downstream consumers use for cross-referencing.
- *
- * NOTE: This module uses `fs` and `path` from Node.js but does not import them.
  *
  * @param {object} duplicationInfo   - Normalized report with a code_clones[] array.
  * @param {string} analysisDirectory - Base directory used to resolve relative file paths.
@@ -18,8 +19,9 @@ const ensureNonExceedingEndLines = (duplicationInfo, analysisDirectory) => {
 		duplicationInfo.code_clones[index].index = index;
 
 		for (const [findex, f] of instance.files.entries()) {
-			// Read the actual source file to determine its true line count.
-			const file = fs.readFileSync(path.join(analysisDirectory, f.filePath), { encoding: "utf8", flag: "r" });
+			// Simian reports absolute paths; only join relative ones onto the base dir.
+			const resolvedPath = path.isAbsolute(f.filePath) ? f.filePath : path.join(analysisDirectory, f.filePath);
+			const file = fs.readFileSync(resolvedPath, { encoding: "utf8", flag: "r" });
 			const numLines = file.split("\n").length;
 
 			// Clamp end_line: use the smaller of the reported value and the real

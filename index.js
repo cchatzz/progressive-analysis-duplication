@@ -1,3 +1,4 @@
+import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -35,7 +36,7 @@ const calulateDuplication = async ({
 
 		// 3. Clamp each clone's end_line so it never exceeds the actual line
 		//    count of the source file (Simian can occasionally over-report).
-		const duplication = ensureNonExceedingEndLines(tmpDuplication, analysisDirectory, root);
+		const duplication = ensureNonExceedingEndLines(tmpDuplication, analysisDirectory);
 
 		// 4. Count physical (LOC) and logical (LLOC) lines of code via cloc.
 		const { LOC, LLOC } = await calculateLoc(analysisDirectory);
