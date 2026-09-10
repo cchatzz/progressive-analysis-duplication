@@ -1,7 +1,7 @@
 import calculateDuplication from "./index.js";
 
 const result = await calculateDuplication({
-    codePath: "../Theseus---Minotaur",
+    codePath: "../Java",
     resultsPath: "./results",
 });
 
