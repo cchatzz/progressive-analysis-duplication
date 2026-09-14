@@ -43,8 +43,7 @@ const nicadAnalysis = async (analysisDirectory) => {
 	const installedConfigPath = `${NICAD_DIRECTORY}/lib/nicad/config/${CONFIG_NAME}.cfg`;
 	shell.exec(`wsl -e bash -lc "cp '${wslConfigPath}' ${installedConfigPath} && sed -i 's/\\r$//' ${installedConfigPath}"`, { silent: true });
 
-	// Expects nicadclones/ to have been cleared beforehand: NiCad otherwise
-	// reuses its cached extraction of a previous run.
+	// Expects nicadclones/ to have been cleared beforehand.
 	const command = `wsl -e bash -lc "cd ${NICAD_DIRECTORY} && ./bin/nicad ${GRANULARITY} java '${wslCodePath}' ${CONFIG_NAME}"`;
 	const proc = shell.exec(command, { silent: true });
 
