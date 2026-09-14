@@ -2,37 +2,80 @@ import "dotenv/config";
 import fs from "node:fs";
 import path from "node:path";
 
-import calculateLoc from "./loc.js";
+import clusterClonePairs from "./cluster.js";
+import mergeClonePairs from "./incremental.js";
 import nicadAnalysis from "./nicad.js";
+import nicadCrossAnalysis from "./nicad-cross.js";
 
 /**
- * Public entry point of the NiCad-based app. Orchestrates the duplication
- * analysis pipeline for a given source directory.
+ * Normalizes a directory path: forward-slashes, no trailing slash.
+ *
+ * @param {string} directory
+ * @returns {string}
+ */
+const normalizeDirectory = (directory) => path.normalize(directory).replaceAll("\\", "/").replace(/\/$/, "");
+
+/**
+ * Public entry point of the NiCad-based app. Runs either a full analysis of a
+ * source directory, or an incremental one that reuses the previous analysis for
+ * everything the commit left untouched.
+ *
+ * The mode follows from the paths given: `codePath` selects a full analysis,
+ * while `changedFilesSetPath` together with `wholeProjectNewVersionPath` selects
+ * an incremental one.
+ *
+ * Both modes derive clone classes from clone pairs the same way, so an
+ * incremental run and a full run of the same project version agree.
  *
  * @param {object}  params
- * @param {string}  params.codePath    - Path to the directory containing the source code to analyze.
- * @param {?string} params.resultsPath - Optional directory path; if provided, writes "duplication-nicad.json" there.
+ * @param {?string} params.codePath                   - Directory to analyze in full.
+ * @param {?string} params.changedFilesSetPath        - Mirrored tree of the files the commit changed.
+ * @param {?string} params.wholeProjectNewVersionPath - The project as it stands after the commit.
+ * @param {?string} params.resultsPath                - Optional directory; if provided, writes "duplication-nicad.json" there.
  * @returns {Promise<object>} A result envelope that never throws:
  *   { success, duplication, duplicationMetrics, duplicationScores, error }
  */
 const calculateDuplication = async ({
-	codePath,
+	codePath = "",
+	changedFilesSetPath = "",
+	wholeProjectNewVersionPath = "",
 	resultsPath = null,
 }) => {
 	try {
-		// Normalize the directory path: convert backslashes to forward-slashes
-		// and strip any trailing slash so path joins stay consistent.
-		const analysisDirectory = path.normalize(codePath).replaceAll("\\", "/").replace(/\/$/, "");
+		const isIncremental = Boolean(changedFilesSetPath && wholeProjectNewVersionPath);
 
-		// 1. Run NiCad over all Java sources and parse its XML output into the
-		//    report structure (general_info + code_clones[]).
-		const { general_info, code_clones } = await nicadAnalysis(analysisDirectory);
-		const duplication = { general_info, code_clones };
+		if (!isIncremental && !codePath) {
+			throw new Error("Provide either \"codePath\", or both \"changedFilesSetPath\" and \"wholeProjectNewVersionPath\".");
+		}
 
-		// 2. Count physical (LOC) and logical (LLOC) lines of code via cloc.
-		const { LOC, LLOC } = await calculateLoc(analysisDirectory);
+		// 1. Collect the clone pairs covering the version under analysis, either
+		//    from a full NiCad run or by merging a NiCadCross run for the changed
+		//    files into the pairs the previous analysis still vouches for.
+		const analysisDirectory = normalizeDirectory(isIncremental ? wholeProjectNewVersionPath : codePath);
+		let clonePairs = [];
 
-		const duplicationMetrics = { duplicateLOC: duplication.general_info.duplicate_loc, LOC, LLOC };
+		if (isIncremental) {
+			if (!resultsPath) {
+				throw new Error("Incremental analysis needs \"resultsPath\" to read the previous analysis from.");
+			}
+
+			const changedFilesDirectory = normalizeDirectory(changedFilesSetPath);
+			const { clonePairs: crossClonePairs } = await nicadCrossAnalysis(analysisDirectory, changedFilesDirectory);
+
+			clonePairs = await mergeClonePairs({
+				resultsPath,
+				wholeProjectDirectory: analysisDirectory,
+				changedFilesDirectory,
+				crossClonePairs,
+			});
+		} else {
+			({ clonePairs } = await nicadAnalysis(analysisDirectory));
+		}
+
+		// 2. Group the pairs into clone classes and derive the report counters.
+		const duplication = clusterClonePairs(clonePairs);
+
+		const duplicationMetrics = { duplicateLOC: duplication.general_info.duplicate_loc };
 		const results = { duplication, duplicationMetrics };
 
 		// 3. Optionally persist the full results to disk as "duplication-nicad.json".
@@ -49,8 +92,8 @@ const calculateDuplication = async ({
 			error: null,
 		};
 	} catch (error) {
-		// Any failure (NiCad execution, XML parsing, cloc, file I/O) is caught
-		// here and returned as a failure envelope instead of propagating.
+		// Any failure (NiCad execution, XML parsing, file I/O) is caught here and
+		// returned as a failure envelope instead of propagating.
 		return {
 			success: false,
 			duplication: {},
