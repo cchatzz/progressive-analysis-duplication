@@ -2,6 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { globby } from "globby";
+import { parser } from "stream-json";
+import { pick } from "stream-json/filters/pick.js";
+import { streamArray } from "stream-json/streamers/stream-array.js";
 
 /**
  * Lists the Java files under `directory` as paths relative to it, using the
@@ -35,25 +38,42 @@ const carryOverClonePairs = (oldClonePairs, changedFiles, currentFiles) => oldCl
 	.filter(({ files }) => files.every(({ filePath }) => !changedFiles.has(filePath) && currentFiles.has(filePath)));
 
 /**
- * Reads the previous analysis and keeps a copy of it as "duplication-nicad-old.json".
+ * Reads the clone pairs of the previous analysis and keeps a copy of the file
+ * as "duplication-nicad-old.json".
  *
- * The previous file is copied rather than renamed so that a failure later in the
- * run cannot leave the directory without a baseline to start from.
+ * The results file can grow past V8's maximum string length, so it is streamed
+ * and only the "clone_pairs" array is pulled out rather than slurped and parsed
+ * in one piece. The file is copied rather than renamed so that a failure later
+ * in the run cannot leave the directory without a baseline to start from.
  *
  * @param {string} resultsPath - Directory holding "duplication-nicad.json".
- * @returns {object} The stored results object.
+ * @returns {Promise<object[]>} The stored clone pairs.
  */
-const readPreviousAnalysis = (resultsPath) => {
+const readPreviousClonePairs = (resultsPath) => new Promise((resolve, reject) => {
 	const previousPath = path.join(resultsPath, "duplication-nicad.json");
 
 	if (!fs.existsSync(previousPath)) {
-		throw new Error(`Incremental analysis needs a previous "${previousPath}". Run a full analysis first.`);
+		reject(new Error(`Incremental analysis needs a previous "${previousPath}". Run a full analysis first.`));
+		return;
 	}
 
 	fs.copyFileSync(previousPath, path.join(resultsPath, "duplication-nicad-old.json"));
 
-	return JSON.parse(fs.readFileSync(previousPath, { encoding: "utf8", flag: "r" }));
-};
+	const clonePairs = [];
+	const source = fs.createReadStream(previousPath);
+	const jsonParser = parser.asStream();
+	const picker = pick.asStream({ filter: "duplication.clone_pairs" });
+	const arrayStream = streamArray.asStream();
+
+	for (const stream of [source, jsonParser, picker, arrayStream]) {
+		stream.on("error", reject);
+	}
+
+	arrayStream.on("data", ({ value }) => clonePairs.push(value));
+	arrayStream.on("end", () => resolve(clonePairs));
+
+	source.pipe(jsonParser).pipe(picker).pipe(arrayStream);
+});
 
 /**
  * Combines the clone pairs carried over from the previous analysis with the ones
@@ -72,14 +92,8 @@ const mergeClonePairs = async ({
 	changedFilesDirectory,
 	crossClonePairs,
 }) => {
-	const previous = readPreviousAnalysis(resultsPath);
-	const oldClonePairs = previous?.duplication?.clone_pairs;
-
-	if (!oldClonePairs) {
-		throw new Error("The previous analysis holds no \"clone_pairs\". Re-run a full analysis to produce them.");
-	}
-
-	const [changedFiles, currentFiles] = await Promise.all([
+	const [oldClonePairs, changedFiles, currentFiles] = await Promise.all([
+		readPreviousClonePairs(resultsPath),
 		listJavaFiles(changedFilesDirectory),
 		listJavaFiles(wholeProjectDirectory),
 	]);

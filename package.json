@@ -13,7 +13,8 @@
   "dependencies": {
     "dotenv": "^17.4.2",
     "globby": "^14.1.0",
+    "sax": "^1.6.0",
     "shelljs": "^0.8.5",
-    "xml2js": "^0.6.2"
+    "stream-json": "^3.7.0"
   }
 }

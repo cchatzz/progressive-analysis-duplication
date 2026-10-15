@@ -2,8 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import sax from "sax";
 import shell from "shelljs";
-import xml2js from "xml2js";
 
 // NiCad is executed through WSL from this directory (installation-free option).
 const NICAD_DIRECTORY = "~/Open-NiCad";
@@ -103,31 +103,50 @@ const toSystemRelativePath = (reportedPath) => {
  * is deliberately ignored: classes record membership but not which blocks were
  * actually similar, and the incremental merge needs those individual pairs.
  *
+ * The report is parsed as a stream: these files can exceed V8's maximum string
+ * length, so the whole document is never held in memory at once.
+ *
  * @param {string} resultsDirectory
  * @returns {Promise<object[]>} [{ similarity, files: [{ filePath, start_line, end_line }, ...] }]
  */
-const readClonePairs = async (resultsDirectory) => {
+const readClonePairs = (resultsDirectory) => new Promise((resolve, reject) => {
 	const pairsFile = fs.readdirSync(resultsDirectory)
 		.find((file) => file.endsWith(".xml") && !file.includes("-classes"));
 
 	if (!pairsFile) {
-		throw new Error(`No clone-pairs report found in "${resultsDirectory}".`);
+		reject(new Error(`No clone-pairs report found in "${resultsDirectory}".`));
+		return;
 	}
 
-	const report = fs.readFileSync(path.join(resultsDirectory, pairsFile), { encoding: "utf8", flag: "r" });
-	const data = await new xml2js.Parser().parseStringPromise(report);
+	const clonePairs = [];
+	let currentPair = null;
 
-	const clones = data?.clones?.clone ?? [];
+	const parser = sax.createStream(true, { trim: true });
 
-	return clones.map((clone) => ({
-		similarity: clone?.$?.similarity,
-		files: clone.source.map((instance) => ({
-			filePath: toSystemRelativePath(instance?.$?.file),
-			start_line: instance?.$?.startline,
-			end_line: instance?.$?.endline,
-		})),
-	}));
-};
+	parser.on("opentag", (node) => {
+		if (node.name === "clone") {
+			currentPair = { similarity: node.attributes.similarity, files: [] };
+		} else if (node.name === "source" && currentPair) {
+			currentPair.files.push({
+				filePath: toSystemRelativePath(node.attributes.file),
+				start_line: node.attributes.startline,
+				end_line: node.attributes.endline,
+			});
+		}
+	});
+
+	parser.on("closetag", (name) => {
+		if (name === "clone" && currentPair) {
+			clonePairs.push(currentPair);
+			currentPair = null;
+		}
+	});
+
+	parser.on("error", reject);
+	parser.on("end", () => resolve(clonePairs));
+
+	fs.createReadStream(path.join(resultsDirectory, pairsFile)).pipe(parser);
+});
 
 export {
 	CONFIG_NAME,

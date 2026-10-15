@@ -16,6 +16,50 @@ import nicadCrossAnalysis from "./nicad-cross.js";
 const normalizeDirectory = (directory) => path.normalize(directory).replaceAll("\\", "/").replace(/\/$/, "");
 
 /**
+ * Streams the results object to disk as JSON.
+ *
+ * The clone arrays can hold over a million entries, whose combined JSON exceeds
+ * V8's maximum string length, so each element is serialized on its own and the
+ * document is assembled through a write stream that honors backpressure.
+ *
+ * @param {string} filePath
+ * @param {object} results - { duplication: { general_info, code_clones, clone_pairs }, duplicationMetrics }
+ * @returns {Promise<void>}
+ */
+const writeResultsJson = (filePath, results) => new Promise((resolve, reject) => {
+	const stream = fs.createWriteStream(filePath, { encoding: "utf8" });
+	stream.on("error", reject);
+	stream.on("finish", resolve);
+
+	const write = (chunk) => new Promise((written) => {
+		if (stream.write(chunk)) written();
+		else stream.once("drain", written);
+	});
+
+	const writeArray = async (items) => {
+		await write("[");
+		for (let index = 0; index < items.length; index += 1) {
+			await write((index ? "," : "") + JSON.stringify(items[index]));
+		}
+		await write("]");
+	};
+
+	const { duplication, duplicationMetrics } = results;
+
+	(async () => {
+		await write("{\"duplication\":{");
+		await write(`\"general_info\":${JSON.stringify(duplication.general_info)},`);
+		await write("\"code_clones\":");
+		await writeArray(duplication.code_clones);
+		await write(",\"clone_pairs\":");
+		await writeArray(duplication.clone_pairs);
+		await write("},");
+		await write(`\"duplicationMetrics\":${JSON.stringify(duplicationMetrics)}}`);
+		stream.end();
+	})().catch(reject);
+});
+
+/**
  * Public entry point of the NiCad-based app. Runs either a full analysis of a
  * source directory, or an incremental one that reuses the previous analysis for
  * everything the commit left untouched.
@@ -60,20 +104,29 @@ const calculateDuplication = async ({
 			}
 
 			const changedFilesDirectory = normalizeDirectory(changedFilesSetPath);
-			const { clonePairs: crossClonePairs } = await nicadCrossAnalysis(analysisDirectory, changedFilesDirectory);
 
+			console.time("Clone pairs extraction");
+			const { clonePairs: crossClonePairs } = await nicadCrossAnalysis(analysisDirectory, changedFilesDirectory);
+			console.timeEnd("Clone pairs extraction");
+
+			console.time("Merging");
 			clonePairs = await mergeClonePairs({
 				resultsPath,
 				wholeProjectDirectory: analysisDirectory,
 				changedFilesDirectory,
 				crossClonePairs,
 			});
+			console.timeEnd("Merging");
 		} else {
+			console.time("Clone pairs extraction");
 			({ clonePairs } = await nicadAnalysis(analysisDirectory));
+			console.timeEnd("Clone pairs extraction");
 		}
 
 		// 2. Group the pairs into clone classes and derive the report counters.
+		console.time("Clustering");
 		const duplication = clusterClonePairs(clonePairs);
+		console.timeEnd("Clustering");
 
 		const duplicationMetrics = { duplicateLOC: duplication.general_info.duplicate_loc };
 		const results = { duplication, duplicationMetrics };
@@ -81,7 +134,7 @@ const calculateDuplication = async ({
 		// 3. Optionally persist the full results to disk as "duplication-nicad.json".
 		if (resultsPath) {
 			const filePath = path.join(resultsPath, "duplication-nicad.json");
-			fs.writeFileSync(filePath, JSON.stringify(results, null, 10));
+			await writeResultsJson(filePath, results);
 		}
 
 		return {
