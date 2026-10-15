@@ -15,7 +15,7 @@ analysis.
 
 ## Requirements
 
-- **Node.js** with the dependencies in `package.json` (`shelljs`, `xml2js`, `globby`, `dotenv`).
+- **Node.js** with the dependencies in `package.json` (`shelljs`, `sax`, `stream-json`, `globby`, `dotenv`).
 - **WSL** with a working [Open-NiCad](https://github.com/CordyJ/Open-NiCad)
   installation at `~/Open-NiCad`, built with `make`. NiCad is invoked in place via
   `./bin/nicad`, so no system-wide install is needed.
