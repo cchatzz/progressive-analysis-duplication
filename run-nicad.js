@@ -6,8 +6,8 @@ console.time("Elapsed");
 
 const result = await calculateDuplication({
     codePath: "",
-    changedFilesSetPath: "../changed-files/spring-framework",
-    wholeProjectNewVersionPath: "../whole-project/spring-framework",
+    changedFilesSetPath: "",
+    wholeProjectNewVersionPath: "",
     resultsPath: "./results",
 });
 

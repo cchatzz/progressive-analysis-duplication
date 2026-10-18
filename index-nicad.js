@@ -3,7 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import clusterClonePairs from "./cluster.js";
+import { saveExtractionCache } from "./extraction-cache.js";
 import mergeClonePairs from "./incremental.js";
+import { listJavaFiles } from "./nicad-common.js";
 import nicadAnalysis from "./nicad.js";
 import nicadCrossAnalysis from "./nicad-cross.js";
 
@@ -105,22 +107,38 @@ const calculateDuplication = async ({
 
 			const changedFilesDirectory = normalizeDirectory(changedFilesSetPath);
 
+			const [changedFiles, currentFiles] = await Promise.all([
+				listJavaFiles(changedFilesDirectory),
+				listJavaFiles(analysisDirectory),
+			]);
+
 			console.time("Clone pairs extraction");
-			const { clonePairs: crossClonePairs } = await nicadCrossAnalysis(analysisDirectory, changedFilesDirectory);
+			const { clonePairs: crossClonePairs } = await nicadCrossAnalysis(
+				analysisDirectory,
+				changedFilesDirectory,
+				{ resultsPath, changedFiles, currentFiles },
+			);
 			console.timeEnd("Clone pairs extraction");
 
 			console.time("Merging");
 			clonePairs = await mergeClonePairs({
 				resultsPath,
-				wholeProjectDirectory: analysisDirectory,
-				changedFilesDirectory,
+				changedFiles,
+				currentFiles,
 				crossClonePairs,
 			});
 			console.timeEnd("Merging");
 		} else {
 			console.time("Clone pairs extraction");
-			({ clonePairs } = await nicadAnalysis(analysisDirectory));
+			const { clonePairs: fullClonePairs, systemName } = await nicadAnalysis(analysisDirectory);
+			clonePairs = fullClonePairs;
 			console.timeEnd("Clone pairs extraction");
+
+			// Keep the extracted blocks so the next incremental run can reuse the
+			// ones belonging to files the commit does not touch.
+			if (resultsPath) {
+				await saveExtractionCache({ systemName, resultsPath });
+			}
 		}
 
 		// 2. Group the pairs into clone classes and derive the report counters.

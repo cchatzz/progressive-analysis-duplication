@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { globby } from "globby";
 import sax from "sax";
 import shell from "shelljs";
 
@@ -11,6 +12,12 @@ const NICAD_DIRECTORY = "~/Open-NiCad";
 // Clone granularity and the name of the bundled configuration in utils/.
 const GRANULARITY = "blocks";
 const CONFIG_NAME = "progressive-analysis";
+
+// The incremental cross run stages both trees under NiCad's working directory
+// under these names, so their results (and extraction databases) stay apart.
+const STAGING_DIRECTORY = ".staging";
+const WHOLE_SYSTEM = "whole";
+const CHANGED_SYSTEM = "changed";
 
 /**
  * Translates a Windows path into the POSIX path WSL expects.
@@ -52,6 +59,42 @@ const installConfig = () => {
 };
 
 /**
+ * Returns the Windows (UNC) path to NiCad's working directory, so its artifacts
+ * can be read and written directly from the host.
+ *
+ * @returns {string}
+ */
+const nicadClonesWindowsPath = () => shell
+	.exec(`wsl -e bash -lc "wslpath -w ${NICAD_DIRECTORY}/nicadclones"`, { silent: true })
+	.stdout
+	.trim();
+
+/**
+ * Returns the Windows (UNC) path to a system's extracted blocks database.
+ *
+ * @param {string} systemName - Name NiCad derived from the analyzed directory.
+ * @returns {string}
+ */
+const blocksDbPath = (systemName) => path.join(
+	nicadClonesWindowsPath(),
+	systemName,
+	`${systemName}_${GRANULARITY}.xml`,
+);
+
+/**
+ * Lists the Java files under `directory` as paths relative to it, using the
+ * same forward-slash form NiCad reports.
+ *
+ * @param {string} directory
+ * @returns {Promise<Set<string>>}
+ */
+const listJavaFiles = async (directory) => {
+	const files = await globby(`${directory}/**/*.java`, { dot: true });
+
+	return new Set(files.map((file) => path.relative(directory, file).replaceAll("\\", "/")));
+};
+
+/**
  * Locates the results directory NiCad wrote for a system.
  *
  * NiCad encodes the configured renaming and normalization in the directory
@@ -63,11 +106,7 @@ const installConfig = () => {
  * @returns {string} Absolute (UNC) path to the results directory.
  */
 const findResultsDirectory = (systemName, suffix) => {
-	const nicadClonesPath = shell
-		.exec(`wsl -e bash -lc "wslpath -w ${NICAD_DIRECTORY}/nicadclones"`, { silent: true })
-		.stdout
-		.trim();
-	const systemPath = path.join(nicadClonesPath, systemName);
+	const systemPath = path.join(nicadClonesWindowsPath(), systemName);
 
 	const resultsDirectory = fs.readdirSync(systemPath).find((entry) => entry.startsWith(`${systemName}_${GRANULARITY}`)
 		&& entry.endsWith(suffix)
@@ -149,12 +188,19 @@ const readClonePairs = (resultsDirectory) => new Promise((resolve, reject) => {
 });
 
 export {
+	CHANGED_SYSTEM,
 	CONFIG_NAME,
 	GRANULARITY,
 	NICAD_DIRECTORY,
+	STAGING_DIRECTORY,
+	WHOLE_SYSTEM,
+	blocksDbPath,
 	findResultsDirectory,
 	installConfig,
+	listJavaFiles,
+	nicadClonesWindowsPath,
 	readClonePairs,
 	runInNicad,
+	toSystemRelativePath,
 	toWslPath,
 };

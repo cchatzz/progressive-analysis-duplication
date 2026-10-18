@@ -20,7 +20,8 @@ import {
  * @returns {Promise<object>} {
  *   proc       - shelljs child-process result of the NiCad run,
  *   clonePairs - [{ similarity, files: [{ filePath, start_line, end_line }, ...] }]
- *                with every filePath relative to `analysisDirectory`
+ *                with every filePath relative to `analysisDirectory`,
+ *   systemName - Name NiCad derived from the analyzed directory.
  * }
  */
 const nicadAnalysis = async (analysisDirectory) => {
@@ -37,7 +38,7 @@ const nicadAnalysis = async (analysisDirectory) => {
 
 	const clonePairs = await readClonePairs(findResultsDirectory(systemName, "-clones"));
 
-	return { proc, clonePairs };
+	return { proc, clonePairs, systemName };
 };
 
 export default nicadAnalysis;

@@ -1,23 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { globby } from "globby";
 import { parser } from "stream-json";
 import { pick } from "stream-json/filters/pick.js";
 import { streamArray } from "stream-json/streamers/stream-array.js";
-
-/**
- * Lists the Java files under `directory` as paths relative to it, using the
- * same forward-slash form NiCad reports.
- *
- * @param {string} directory
- * @returns {Promise<Set<string>>}
- */
-const listJavaFiles = async (directory) => {
-	const files = await globby(`${directory}/**/*.java`, { dot: true });
-
-	return new Set(files.map((file) => path.relative(directory, file).replaceAll("\\", "/")));
-};
 
 /**
  * Selects the clone pairs of the previous analysis that the commit cannot have
@@ -80,23 +66,19 @@ const readPreviousClonePairs = (resultsPath) => new Promise((resolve, reject) =>
  * NiCadCross found for the changed files.
  *
  * @param {object} params
- * @param {string} params.resultsPath           - Directory holding the previous analysis.
- * @param {string} params.wholeProjectDirectory - Root of the project after the commit.
- * @param {string} params.changedFilesDirectory - Root of the mirrored tree of changed files.
- * @param {object[]} params.crossClonePairs     - Pairs reported by NiCadCross.
+ * @param {string} params.resultsPath        - Directory holding the previous analysis.
+ * @param {Set<string>} params.changedFiles  - Project-relative paths the commit touched.
+ * @param {Set<string>} params.currentFiles  - Project-relative paths that exist after the commit.
+ * @param {object[]} params.crossClonePairs  - Pairs reported by NiCadCross.
  * @returns {Promise<object[]>} The merged clone pairs.
  */
 const mergeClonePairs = async ({
 	resultsPath,
-	wholeProjectDirectory,
-	changedFilesDirectory,
+	changedFiles,
+	currentFiles,
 	crossClonePairs,
 }) => {
-	const [oldClonePairs, changedFiles, currentFiles] = await Promise.all([
-		readPreviousClonePairs(resultsPath),
-		listJavaFiles(changedFilesDirectory),
-		listJavaFiles(wholeProjectDirectory),
-	]);
+	const oldClonePairs = await readPreviousClonePairs(resultsPath);
 
 	return [...carryOverClonePairs(oldClonePairs, changedFiles, currentFiles), ...crossClonePairs];
 };
